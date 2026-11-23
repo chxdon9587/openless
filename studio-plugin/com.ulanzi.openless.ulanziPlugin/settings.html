@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>
+body{background:transparent;color:#ccc;font:13px system-ui;margin:8px}button{padding:6px 12px}p{line-height:1.5}
+</style><button disabled>配置 OpenAI API Key</button><p id="status">连接 Studio 中…</p>
+<script>
+const p = new URLSearchParams(location.search);
+const button = document.querySelector('button'), statusLine=document.querySelector('#status');
+const ws = new WebSocket('ws://'+p.get('address')+':'+p.get('port'));
+const context=Object.fromEntries(['uuid','key','actionid'].map(k=>[k,p.get(k)]));
+ws.onopen=()=>{
+  ws.send(JSON.stringify({cmd:'connected',code:0,...context}));
+  button.disabled=false; statusLine.textContent='按住设备键录音，松开后输入。密钥由系统钥匙串保存。';
+};
+ws.onclose=()=>{button.disabled=true;statusLine.textContent='连接已断开，请重新选中按键。'};
+button.onclick=()=>ws.send(JSON.stringify({cmd:'sendToPlugin',...context,payload:{action:'configure'}}));
+</script></html>

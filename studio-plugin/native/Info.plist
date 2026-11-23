@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.ulanzi.openless.helper</string><key>CFBundleName</key><string>OpenLess 听写</string><key>NSMicrophoneUsageDescription</key><string>按住设备按键时录制语音，用于云端听写。</string></dict></plist>
