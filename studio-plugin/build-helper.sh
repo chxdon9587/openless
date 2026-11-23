@@ -7,3 +7,4 @@ codesign --force --sign - --identifier com.ulanzi.openless.helper "$out"
 overlay=com.ulanzi.openless.ulanziPlugin/bin/overlay
 swiftc -O -target arm64-apple-macos13.0 native/overlay.swift -o "$overlay"
 codesign --force --sign - --identifier com.ulanzi.openless.overlay "$overlay"
+bash build-recorder.sh

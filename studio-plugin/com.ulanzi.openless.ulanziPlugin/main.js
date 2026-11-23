@@ -4,6 +4,7 @@ const {mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, renameSync} 
 const {homedir, tmpdir} = require('node:os');
 const path = require('node:path');
 const cloud = require('./cloud');
+const {record} = require('./record');
 const uuid = require('./manifest.json').UUID;
 const helper = path.join(__dirname, 'bin/helper');
 const [address, port] = process.argv.slice(2);
@@ -89,12 +90,10 @@ async function dictate(id) {
     if (current.ended || current.abort.signal.aborted) return title(id, '请按久一点');
     dir = mkdtempSync(path.join(tmpdir(), 'openless-'));
     const wav = path.join(dir, 'recording.wav');
-    const recorder = native(['record', wav]);
-    current.child = recorder.child;
-    recorder.child.stdout.once('data', () => { checkpoint(current, 'recording'); title(id, '录音中'); });
-    released.then(() => recorder.child.stdin.end('\n'));
-    const target = await recorder.result;
-    if (!/^\d+$/.test(target)) throw Error('录音失败');
+    const target = await record(dir, released, current.abort.signal, status => {
+      if (status === '录音中') checkpoint(current, 'recording');
+      title(id, status);
+    });
     current.abort.signal.throwIfAborted();
     const audio = readFileSync(wav);
     checkpoint(current, 'wavBytes', audio.length);
