@@ -1,8 +1,13 @@
 import AppKit
+import Carbon
 
 final class StatusPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+}
+
+final class UndoButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 let mint = NSColor(srgbRed: 0.52, green: 0.94, blue: 0.82, alpha: 1)
@@ -77,10 +82,67 @@ surface.addSubview(clock)
 let wave = Waveform(frame: NSRect(x: 13, y: 10, width: 42, height: 24))
 surface.addSubview(wave)
 
+// Register only Escape, and only for the current recording, so other apps keep their shortcuts.
+var recordingToken: String?
+var escapeKey: EventHotKeyRef?
+var escapeDown = false
+var armed = false
+let undo = UndoButton(frame: chip.frame)
+undo.title = "撤销"
+undo.isBordered = false
+undo.font = .systemFont(ofSize: 12, weight: .semibold)
+undo.contentTintColor = .systemOrange
+undo.isHidden = true
+surface.addSubview(undo)
+
+func notifyController(_ event: String) {
+    guard let token = recordingToken else { return }
+    FileHandle.standardOutput.write(Data("\(event) \(token)\n".utf8))
+}
+func offerUndo() {
+    clock.isHidden = true
+    undo.isHidden = false
+    panel.ignoresMouseEvents = false
+}
+func armUndo() {
+    armed = true
+    notifyController("arm")
+    offerUndo()
+}
+final class UndoAction: NSObject {
+    @objc func confirm() {
+        if !armed { armUndo() }
+        notifyController("undo")
+    }
+}
+let undoAction = UndoAction()
+undo.target = undoAction
+undo.action = #selector(UndoAction.confirm)
+var keyEvents = [
+    EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+    EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+]
+let handlerStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+    guard let event, recordingToken != nil else { return OSStatus(eventNotHandledErr) }
+    if GetEventKind(event) == UInt32(kEventHotKeyReleased) {
+        escapeDown = false
+    } else if !escapeDown {
+        escapeDown = true
+        if armed { notifyController("undo") } else { armUndo() }
+    }
+    return noErr
+}, keyEvents.count, &keyEvents, nil, nil)
+
 // Keep the capsule centred on the same screen throughout this dictation.
 let screenFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
 var timer: Timer?
-func show(_ status: String) {
+func show(_ status: String, token: String? = nil) {
+    if let key = escapeKey { UnregisterEventHotKey(key); escapeKey = nil }
+    recordingToken = token
+    escapeDown = false
+    armed = false
+    undo.isHidden = true
+    panel.ignoresMouseEvents = true
     let recording = status == "录音中" || status == "录音中 · 再按结束"
     timer?.invalidate()
     wave.isHidden = !recording
@@ -96,6 +158,13 @@ func show(_ status: String) {
     switch status {
     case "准备录音": symbol = "mic"; color = .lightGray
     case "录音中", "录音中 · 再按结束":
+        if token != nil {
+            let hotkey = EventHotKeyID(signature: 0x4f4c4553, id: 1)
+            if handlerStatus != noErr || RegisterEventHotKey(UInt32(kVK_Escape), 0, hotkey, GetApplicationEventTarget(), 0, &escapeKey) != noErr {
+                // If another app owns Escape, the user can still discard by mouse.
+                offerUndo()
+            }
+        }
         let start = ProcessInfo.processInfo.systemUptime
         clock.stringValue = "00:00"
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
@@ -105,6 +174,7 @@ func show(_ status: String) {
         }
     case "识别中": symbol = "text.bubble"; color = .systemCyan; message = "正在转写"
     case "润色中": symbol = "sparkles"; color = .systemCyan; message = "正在润色"
+    case "已撤销": symbol = "arrow.uturn.backward"; color = .lightGray
     case "已输入": symbol = "checkmark.circle.fill"; color = mint
     default: break
     }
@@ -126,6 +196,8 @@ DispatchQueue.global().async {
         DispatchQueue.main.async {
             if line.hasPrefix("level ") {
                 if !wave.isHidden, let n = Int(line.dropFirst(6)), (0...100).contains(n) { wave.sample(n) }
+            } else if line.hasPrefix("record "), let token = UUID(uuidString: String(line.dropFirst(7))) {
+                show("录音中", token: token.uuidString.lowercased())
             } else { show(line) }
         }
     }

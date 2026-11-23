@@ -1,3 +1,5 @@
+const {createInterface} = require('node:readline');
+const {randomUUID} = require('node:crypto');
 const WebSocket = require('ws');
 const {spawn} = require('node:child_process');
 const {mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, renameSync} = require('node:fs');
@@ -61,8 +63,16 @@ function send(data) {
 function displayStatus(text) {
   clearTimeout(overlayTimer);
   if (!overlay) {
-    const child = spawn(path.join(__dirname, 'bin/overlay'), [], {stdio:['pipe','ignore','ignore']});
+    const child = spawn(path.join(__dirname, 'bin/overlay'), [], {stdio:['pipe','pipe','ignore']});
     overlay = child;
+    createInterface({input:child.stdout}).on('line', line => {
+      const [event, token] = line.split(' ');
+      const current = session;
+      if (overlay !== child || !current || current.token !== token || current.ended ||
+          current.abort.signal.aborted || !current.stages.recording) return;
+      if (event === 'arm') current.undoArmed = true;
+      if (event === 'undo' && current.undoArmed) undoRecording(current);
+    });
     child.stdin.on('error', () => {});
     const reset = () => { if (overlay === child) overlay = undefined; };
     child.on('error', reset);
@@ -77,7 +87,10 @@ function dismissStatus() {
   }, 2400);
 }
 function title(id, text) {
-  if (session?.id === id) displayStatus(text);
+  if (session?.id === id) {
+    const recording = text === '录音中' || text === '录音中 · 再按结束';
+    displayStatus(recording ? 'record ' + session.token : text);
+  }
   const context = instances.get(id);
   if (context?.active) send({cmd:'setTitle', param:{uuid:context.uuid, key:context.key, actionid:id, text}});
 }
@@ -100,10 +113,15 @@ function cancel() {
   current.child?.kill();
   current.release();
 }
+function undoRecording(current) {
+  current.ended = true;
+  current.discarded = true;
+  cancel();
+}
 async function dictate(id, mode, modelId, polishModels) {
   let release;
   const released = new Promise(resolve => { release = resolve; });
-  const current = {id, mode, release, abort:new AbortController(), stages:{startedAt:new Date().toISOString()}};
+  const current = {id, mode, release, token:randomUUID(), abort:new AbortController(), stages:{startedAt:new Date().toISOString()}};
   session = current;
   checkpoint(current, 'keydown');
   displayStatus('准备录音');
@@ -146,8 +164,9 @@ async function dictate(id, mode, modelId, polishModels) {
     checkpoint(current, 'output', status === '已输入' ? 'confirmed' : status.startsWith('请检查输入框') ? 'unconfirmed' : 'clipboard');
     title(id, (degraded ? '原文 · ' : '') + status);
   } catch (error) {
-    checkpoint(current, 'failure', /^服务错误 [0-9]{3}/.test(error.message) ? error.message : 'stage-failed');
-    title(id, current.abort.signal.aborted ? '已取消' : error.message);
+    if (current.discarded) checkpoint(current, 'discarded');
+    else checkpoint(current, 'failure', /^服务错误 [0-9]{3}/.test(error.message) ? error.message : 'stage-failed');
+    title(id, current.discarded ? '已撤销' : current.abort.signal.aborted ? '已取消' : error.message);
   } finally {
     clearTimeout(timer);
     dismissStatus();
@@ -198,6 +217,7 @@ function receive(m) {
   if (m.cmd === 'keydown' && instance.active && !instance.down && !m.isInMultiAction) {
     instance.down = true;
     if (!session && !configuring) void dictate(id, instance.mode, instance.modelId, instance.polishModels);
+    else if (session?.id === id && session.undoArmed && !session.ended) undoRecording(session);
     else if (session?.id === id && session.mode === 'toggle' && !session.ended) {
       session.ended = true;
       session.release();
@@ -205,7 +225,7 @@ function receive(m) {
   }
   if (m.cmd === 'keyup') {
     instance.down = false;
-    if (session?.id === id && session.mode === 'hold' && !session.ended) {
+    if (session?.id === id && session.mode === 'hold' && !session.undoArmed && !session.ended) {
       checkpoint(session, 'keyup');
       session.ended = true;
       session.release();
