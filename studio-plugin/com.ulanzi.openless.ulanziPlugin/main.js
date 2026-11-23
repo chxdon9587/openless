@@ -7,6 +7,7 @@ const cloud = require('./cloud');
 const uuid = require('./manifest.json').UUID;
 const helper = path.join(__dirname, 'bin/helper');
 const [address, port] = process.argv.slice(2);
+let overlay, overlayTimer;
 let socket, session, configuring = false;
 const instances = new Map();
 
@@ -24,7 +25,27 @@ function checkpoint(current, stage, value = true) {
 function send(data) {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(data));
 }
+// Share one panel across consecutive presses so a previous result cannot cover a new recording.
+function displayStatus(text) {
+  clearTimeout(overlayTimer);
+  if (!overlay) {
+    const child = spawn(path.join(__dirname, 'bin/overlay'), [], {stdio:['pipe','ignore','ignore']});
+    overlay = child;
+    child.stdin.on('error', () => {});
+    const reset = () => { if (overlay === child) overlay = undefined; };
+    child.on('error', reset);
+    child.on('close', reset);
+  }
+  overlay.stdin.write(text.replace(/[\r\n]/g, ' ') + '\n');
+}
+function dismissStatus() {
+  overlayTimer = setTimeout(() => {
+    overlay?.stdin.end();
+    overlay = undefined;
+  }, 2400);
+}
 function title(id, text) {
+  if (session?.id === id) displayStatus(text);
   const context = instances.get(id);
   if (context?.active) send({cmd:'setTitle', param:{uuid:context.uuid, key:context.key, actionid:id, text}});
 }
@@ -53,6 +74,7 @@ async function dictate(id) {
   const current = {id, release, abort:new AbortController(), stages:{startedAt:new Date().toISOString()}};
   session = current;
   checkpoint(current, 'keydown');
+  displayStatus('准备录音');
   const timer = setTimeout(cancel, 180000);
   let dir;
   try {
@@ -92,6 +114,7 @@ async function dictate(id) {
     title(id, current.abort.signal.aborted ? '已取消' : error.message);
   } finally {
     clearTimeout(timer);
+    dismissStatus();
     if (dir) rmSync(dir, {recursive:true, force:true});
     if (session === current) session = undefined;
   }
