@@ -1,12 +1,29 @@
+const {execFileSync} = require('node:child_process');
+const {ProxyAgent} = require('undici');
+
+// The GUI host usually starts without the shell's proxy environment.
+function systemProxy() {
+  const settings = execFileSync('/usr/sbin/scutil', ['--proxy'], {encoding:'utf8', timeout:2000});
+  const get = key => settings.match(new RegExp('^\\s*' + key + ' : (.+)$', 'm'))?.[1].trim();
+  if (get('HTTPSEnable') !== '1') return;
+  const host = get('HTTPSProxy'), port = Number(get('HTTPSPort'));
+  if (host && port > 0 && port <= 65535) return new ProxyAgent('http://' + host + ':' + port);
+}
+let dispatcher;
 const root = 'https://api.openai.com/v1/';
 async function request(route, body, token, signal) {
   const headers = { Authorization: 'Bearer ' + token };
   if (typeof body === 'string') headers['Content-Type'] = 'application/json';
+  dispatcher ??= systemProxy();
   const response = await fetch(root + route, {
     method: 'POST', headers, body, signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
-    redirect: 'error'
+    redirect: 'error', dispatcher
   });
-  if (!response.ok) throw Error('服务错误 ' + response.status);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    const code = body.error?.code;
+    throw Error('服务错误 ' + response.status + (typeof code === 'string' && /^[a-z_]{1,48}$/.test(code) ? ' ' + code : ''));
+  }
   return response.json();
 }
 exports.transcribe = async (wav, token, signal) => {
@@ -24,5 +41,7 @@ exports.polish = async (text, token, signal) => {
       {role:'user', content:text}
     ]
   }), token, signal);
-  return result.choices?.[0]?.message?.content?.trim() || text;
+  const polished = result.choices?.[0]?.message?.content?.trim();
+  if (!polished) throw Error('润色结果为空');
+  return polished;
 };

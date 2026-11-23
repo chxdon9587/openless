@@ -1,4 +1,42 @@
 {
-  "UUID":"com.ulanzi.ulanzistudio.openless","Version":"0.1.0","Author":"OpenLess Ulanzi fork","Name":"OpenLess 听写","Category":"OpenLess 听写","Description":"按住设备键说话，松开后整理文字并输入。","Icon":"assets/openless.png","CategoryIcon":"assets/openless.png","Type":"JavaScript","CodePath":"main.js","Software":{"MinVersion":"3.3.0"},"OS":[{"Platform":"mac","MinimumVersion":"13.0"}],
-  "Actions":[{"UUID":"com.ulanzi.ulanzistudio.openless.dictate","Name":"按住听写","Tooltip":"按住录音，松开后输入","Controllers":["Keypad"],"SupportedInMultiActions":false,"SupportedInKeyLogicActions":false,"PropertyInspectorPath":"settings.html","Icon":"assets/openless.png","States":[{"Name":"听写","Image":"assets/openless.png"}],"state":0}]
+  "UUID": "com.ulanzi.ulanzistudio.openless",
+  "Version": "0.1.1",
+  "Author": "OpenLess Ulanzi fork",
+  "Name": "OpenLess 听写",
+  "Category": "OpenLess 听写",
+  "Description": "按住设备键说话，松开后整理文字并输入。",
+  "Icon": "assets/openless.png",
+  "CategoryIcon": "assets/openless.png",
+  "Type": "JavaScript",
+  "CodePath": "main.js",
+  "Software": {
+    "MinVersion": "3.3.0"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "13.0"
+    }
+  ],
+  "Actions": [
+    {
+      "UUID": "com.ulanzi.ulanzistudio.openless.dictate",
+      "Name": "按住听写",
+      "Tooltip": "按住录音，松开后输入",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": false,
+      "SupportedInKeyLogicActions": false,
+      "PropertyInspectorPath": "settings.html",
+      "Icon": "assets/openless.png",
+      "States": [
+        {
+          "Name": "听写",
+          "Image": "assets/openless.png"
+        }
+      ],
+      "state": 0
+    }
+  ]
 }

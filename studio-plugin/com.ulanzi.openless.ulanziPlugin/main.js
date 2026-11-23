@@ -1,7 +1,7 @@
 const WebSocket = require('ws');
 const {spawn} = require('node:child_process');
-const {mkdtempSync, readFileSync, rmSync} = require('node:fs');
-const {tmpdir} = require('node:os');
+const {mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, renameSync} = require('node:fs');
+const {homedir, tmpdir} = require('node:os');
 const path = require('node:path');
 const cloud = require('./cloud');
 const uuid = require('./manifest.json').UUID;
@@ -10,6 +10,17 @@ const [address, port] = process.argv.slice(2);
 let socket, session, configuring = false;
 const instances = new Map();
 
+// Keep only the latest attempt. Audio, transcripts, credentials and target names are excluded.
+const diagnosticDir = path.join(homedir(), 'Library/Logs/OpenLessStudio');
+function checkpoint(current, stage, value = true) {
+  current.stages[stage] = value;
+  try {
+    mkdirSync(diagnosticDir, {recursive:true, mode:0o700});
+    const file = path.join(diagnosticDir, 'last-session.json');
+    writeFileSync(file + '.tmp', JSON.stringify(current.stages), {mode:0o600});
+    renameSync(file + '.tmp', file);
+  } catch { /* Diagnostics must never interrupt dictation. */ }
+}
 function send(data) {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(data));
 }
@@ -39,8 +50,9 @@ function cancel() {
 async function dictate(id) {
   let release;
   const released = new Promise(resolve => { release = resolve; });
-  const current = {id, release, abort:new AbortController()};
+  const current = {id, release, abort:new AbortController(), stages:{startedAt:new Date().toISOString()}};
   session = current;
+  checkpoint(current, 'keydown');
   const timer = setTimeout(cancel, 180000);
   let dir;
   try {
@@ -52,26 +64,31 @@ async function dictate(id) {
     const wav = path.join(dir, 'recording.wav');
     const recorder = native(['record', wav]);
     current.child = recorder.child;
-    recorder.child.stdout.once('data', () => title(id, '录音中'));
+    recorder.child.stdout.once('data', () => { checkpoint(current, 'recording'); title(id, '录音中'); });
     released.then(() => recorder.child.stdin.end('\n'));
     const target = await recorder.result;
     if (!/^\d+$/.test(target)) throw Error('录音失败');
     current.abort.signal.throwIfAborted();
     const audio = readFileSync(wav);
+    checkpoint(current, 'wavBytes', audio.length);
     if (audio.length < 5000) throw Error('录音太短');
     title(id, '识别中');
     const raw = await cloud.transcribe(audio, token, current.abort.signal);
+    checkpoint(current, 'transcribed');
     title(id, '润色中');
     let text = raw, degraded = false;
     try { text = await cloud.polish(raw, token, current.abort.signal); }
     catch { degraded = true; }
+    checkpoint(current, 'polished', !degraded);
     current.abort.signal.throwIfAborted();
     const insertion = native(['paste', target]);
     current.child = insertion.child;
     insertion.child.stdin.end(text);
     const status = await insertion.result;
+    checkpoint(current, 'output', status === '已发送粘贴' ? 'paste-dispatched' : 'clipboard');
     title(id, (degraded ? '原文 · ' : '') + status);
   } catch (error) {
+    checkpoint(current, 'failure', /^服务错误 [0-9]{3}/.test(error.message) ? error.message : 'stage-failed');
     title(id, current.abort.signal.aborted ? '已取消' : error.message);
   } finally {
     clearTimeout(timer);
@@ -99,7 +116,7 @@ function receive(m) {
   }
   if (m.cmd === 'setactive' && !m.active && session?.id === id) cancel();
   if (m.cmd === 'keydown' && !session && !configuring && !m.isInMultiAction) void dictate(id);
-  if (m.cmd === 'keyup' && session?.id === id) { session.ended = true; session.release(); }
+  if (m.cmd === 'keyup' && session?.id === id) { checkpoint(session, 'keyup'); session.ended = true; session.release(); }
   if (m.cmd === 'sendToPlugin' && m.payload?.action === 'configure' && !configuring && !session) {
     configuring = true;
     native(['configure']).result.then(msg => title(id,msg || '按住听写'), e => title(id,e.message))
