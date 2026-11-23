@@ -1,4 +1,4 @@
-# OpenLess 听写 0.1.10
+# OpenLess 听写 0.1.11
 
 Apple 芯片 Mac，macOS 13+，Ulanzi Studio 3.3+。将「OpenLess 听写 → 听写」拖到普通按键，在属性栏点「配置密钥」或「更换密钥」。所有听写按键共用 Studio 全局设置中以 AES-256-GCM 加密的凭据。加密用的随机密钥单独保存在当前 macOS 用户目录（权限 0600）。换机、丢失本机加密密钥或从钥匙串版本升级时，请重新输入 API Key。账户需要能调用 whisper-1 和 gpt-4o-mini，服务费用计入自己的 OpenAI 账户。
 
@@ -8,4 +8,4 @@ Apple 芯片 Mac，macOS 13+，Ulanzi Studio 3.3+。将「OpenLess 听写 → �
 
 基于 Open-Less/openless fork，图标来自上游 src-tauri/icons；许可见 LICENSE。WebSocket 库的许可见 node_modules/ws/LICENSE。源码在 https://github.com/chxdon9587/openless/tree/feat/ulanzi-mac-dictation/studio-plugin 。从源码构建时在插件目录运行 npm ci --omit=dev，在上级目录运行 bash build-helper.sh。
 
-设备键按下后，屏幕底部显示状态浮窗。看到麦克风和计时即可说话，右侧波形显示最近一秒的输入音量；结束听写后依次显示转写、润色与结果，最后自动收起。
+设备键按下后，屏幕底部显示状态浮窗。看到录音指示灯即可说话，中央波形显示输入音量，右端先提示结束手势，再显示时长；结束听写后依次显示转写、润色与结果，最后自动收起。
