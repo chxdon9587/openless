@@ -8,7 +8,7 @@ const ws = new WebSocket('ws://'+p.get('address')+':'+p.get('port'));
 const context=Object.fromEntries(['uuid','key','actionid'].map(k=>[k,p.get(k)]));
 ws.onopen=()=>{
   ws.send(JSON.stringify({cmd:'connected',code:0,...context}));
-  button.disabled=false; statusLine.textContent='按住设备键录音，松开后输入。密钥由系统钥匙串保存。';
+  button.disabled=false; statusLine.textContent='按住设备键录音，松开后输入。API Key 加密保存在 Studio 全局设置中。';
 };
 ws.onclose=()=>{button.disabled=true;statusLine.textContent='连接已断开，请重新选中按键。'};
 button.onclick=()=>ws.send(JSON.stringify({cmd:'sendToPlugin',...context,payload:{action:'configure'}}));

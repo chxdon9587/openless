@@ -8,8 +8,32 @@ const {record} = require('./record');
 const uuid = require('./manifest.json').UUID;
 const helper = path.join(__dirname, 'bin/helper');
 const [address, port] = process.argv.slice(2);
-// Cache a successful read for this plugin process. Key changes in the inspector invalidate it.
-let sessionCredential;
+const {seal, unseal} = require('./credentials');
+let pendingSettings;
+function readSettings(id) {
+  return new Promise((resolve, reject) => {
+    if (pendingSettings || socket.readyState !== WebSocket.OPEN) return reject(Error('全局设置暂不可用'));
+    const timer = setTimeout(() => finish(undefined, Error('读取全局设置超时')), 3000);
+    function finish(settings, error) {
+      clearTimeout(timer);
+      pendingSettings = undefined;
+      if (error) reject(error); else resolve(settings);
+    }
+    pendingSettings = {id, finish};
+    send({cmd:'getGlobalSettings', uuid, actionid:id});
+  });
+}
+async function configure(id) {
+  // Keep plaintext off Studio's WebSocket and therefore out of host protocol logs.
+  const value = await native(['configure']).result;
+  if (!value) return;
+  const settings = await readSettings(id);
+  const box = seal(value);
+  send({cmd:'setGlobalSettings', uuid, settings:{...settings, openaiCredential:box}});
+  const saved = await readSettings(id);
+  if (unseal(saved.openaiCredential) !== value) throw Error('保存全局设置失败');
+  title(id,'已保存');
+}
 let overlay, overlayTimer;
 let socket, session, configuring = false;
 const instances = new Map();
@@ -81,12 +105,7 @@ async function dictate(id) {
   const timer = setTimeout(cancel, 180000);
   let dir;
   try {
-    if (!sessionCredential) {
-      const key = native(['credential']);
-      current.child = key.child;
-      sessionCredential = await key.result;
-    }
-    const token = sessionCredential;
+    const token = unseal((await readSettings(id)).openaiCredential);
     if (current.ended || current.abort.signal.aborted) return title(id, '请按久一点');
     dir = mkdtempSync(path.join(tmpdir(), 'openless-'));
     const wav = path.join(dir, 'recording.wav');
@@ -124,6 +143,11 @@ async function dictate(id) {
   }
 }
 function receive(m) {
+  if (m.cmd === 'didReceiveGlobalSettings' && m.uuid === uuid && pendingSettings &&
+      m.actionid === pendingSettings.id && m.settings && typeof m.settings === 'object') {
+    pendingSettings.finish(m.settings);
+    return;
+  }
   if (m.cmdType === 'NOTIFY' || (m.code !== undefined && m.cmdType !== 'REQUEST')) return;
   if (['add','clear','keydown','keyup','run','setactive','sendToPlugin'].includes(m.cmd)) {
     const {cmdType, ...response} = m;
@@ -146,10 +170,7 @@ function receive(m) {
   if (m.cmd === 'keyup' && session?.id === id) { checkpoint(session, 'keyup'); session.ended = true; session.release(); }
   if (m.cmd === 'sendToPlugin' && m.payload?.action === 'configure' && !configuring && !session) {
     configuring = true;
-    native(['configure']).result.then(msg => {
-      if (msg) sessionCredential = undefined;
-      title(id, msg || '按住听写');
-    }, e => title(id,e.message))
+    configure(id).catch(e => title(id, e.message))
       .finally(() => configuring = false);
   }
 }
@@ -158,6 +179,6 @@ function connect() {
   socket.on('open', () => send({cmd:'connected', code:0, uuid}));
   socket.on('message', bytes => { try { receive(JSON.parse(bytes)); } catch {} });
   socket.on('error', () => {});
-  socket.on('close', () => { instances.clear(); cancel(); setTimeout(connect, 1000); });
+  socket.on('close', () => { pendingSettings?.finish(undefined, Error('Studio 已断开')); instances.clear(); cancel(); setTimeout(connect, 1000); });
 }
 connect();

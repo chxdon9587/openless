@@ -1,6 +1,6 @@
-# OpenLess 听写 0.1.5
+# OpenLess 听写 0.1.6
 
-Apple 芯片 Mac，macOS 13+，Ulanzi Studio 3.3+。将「OpenLess 听写 → 按住听写」拖到普通按键，在属性面板点「配置 OpenAI API Key」。所有听写按键共用本机钥匙串中的密钥。账户需要能调用 whisper-1 和 gpt-4o-mini，服务费用计入自己的 OpenAI 账户。
+Apple 芯片 Mac，macOS 13+，Ulanzi Studio 3.3+。将「OpenLess 听写 → 按住听写」拖到普通按键，在属性面板点「配置 OpenAI API Key」。所有听写按键共用 Studio 全局设置中以 AES-256-GCM 加密的凭据。加密用的随机密钥单独保存在当前 macOS 用户目录（权限 0600）。换机、丢失本机加密密钥或从钥匙串版本升级时，请重新输入 API Key。账户需要能调用 whisper-1 和 gpt-4o-mini，服务费用计入自己的 OpenAI 账户。
 
 先将光标置于目标输入框。按住按键说话，松开后等待识别、润色及粘贴。首次看到 OpenLess Recorder 请求麦克风权限时点击允许；若仍按住，录音继续。若已松开，重新按住再说。若看到「请在系统设置允许麦克风」，打开「系统设置 → 隐私与安全性 → 麦克风」开启 OpenLess Recorder 的权限。macOS「隐私与安全性 → 辅助功能」中允许负责粘贴的进程；未授权或前台应用发生变化时，请手动粘贴。每次输出会覆盖当前剪贴板。请保持目标输入框的焦点。
 
