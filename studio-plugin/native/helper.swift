@@ -97,6 +97,27 @@ func confirmsInsertion(_ element: AXUIElement, at offset: Int, text: String) -> 
     return AXUIElementCopyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString,
                                                        parameter, &result) == .success && result as? String == text
 }
+// Find the application's standard Command-V item by accelerator so this works across UI languages.
+func pasteMenuItem(in app: AXUIElement) -> AXUIElement? {
+    guard let menu = attribute(app, kAXMenuBarAttribute as CFString),
+          CFGetTypeID(menu) == AXUIElementGetTypeID() else { return nil }
+    func children(_ e: AXUIElement) -> [AXUIElement] {
+        attribute(e, kAXChildrenAttribute as CFString) as? [AXUIElement] ?? []
+    }
+    for top in children(menu as! AXUIElement) {
+        for submenu in children(top) {
+            for item in children(submenu) {
+                guard let key = attribute(item, kAXMenuItemCmdCharAttribute as CFString) as? String,
+                      key.lowercased() == "v",
+                      let modifiers = attribute(item, kAXMenuItemCmdModifiersAttribute as CFString) as? NSNumber,
+                      modifiers.intValue == 0,
+                      (attribute(item, kAXEnabledAttribute as CFString) as? Bool) == true else { continue }
+                return item
+            }
+        }
+    }
+    return nil
+}
 func paste(_ target: String) throws {
     guard let text = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8), !text.isEmpty else { throw Failure("文本为空") }
     let board = NSPasteboard.general
@@ -111,24 +132,27 @@ func paste(_ target: String) throws {
     let focus = attribute(app, kAXFocusedUIElementAttribute as CFString)
     let field = focus.flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
     let original = field.flatMap(selection)
-    var editable = DarwinBoolean(false)
-    var inserted = false
-    if let field, original != nil,
-       AXUIElementIsAttributeSettable(field, kAXSelectedTextAttribute as CFString, &editable) == .success,
-       editable.boolValue {
-        let status = AXUIElementSetAttributeValue(field, kAXSelectedTextAttribute as CFString, text as CFString)
-        inserted = status == .success || status == .cannotComplete // A timeout may already have inserted the text.
+    if let field, let role = attribute(field, kAXRoleAttribute as CFString) as? String,
+       [kAXButtonRole, kAXMenuItemRole, kAXCheckBoxRole, kAXRadioButtonRole].contains(role) {
+        print("请点击输入框 · 再按 ⌘V"); return
     }
-    if !inserted {
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-              let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
+    // Chromium may acknowledge an AXSelectedText write without firing an input event.
+    // Deliver one ordinary Paste through the foreground event stream, then verify separately.
+    let item = pasteMenuItem(in: app)
+    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+        print("焦点已切换 · 请按 ⌘V"); return
+    }
+    let menuStatus = item.map { AXUIElementPerformAction($0, kAXPressAction as CFString) }
+    if menuStatus != .success && menuStatus != .cannotComplete {
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else {
             print("已复制 · 请按 ⌘V"); return
         }
-        down.flags = .maskCommand; up.flags = .maskCommand
-        down.postToPid(pid)
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cghidEventTap)
         Thread.sleep(forTimeInterval: 0.02)
-        up.postToPid(pid)
+        up.post(tap: .cghidEventTap)
     }
     if let field, let original {
         for _ in 0..<5 {
