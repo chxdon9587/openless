@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>听写配置帮助 · OpenLess</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.7 -apple-system,BlinkMacSystemFont,sans-serif; }
+  body { max-width: 880px; margin: auto; padding: 32px clamp(16px,5vw,56px) 60px; }
+  h1,h2,h3 { line-height: 1.35; }
+  h2 { margin-top: 2em; border-bottom: 1px solid #8886; padding-bottom: .35em; }
+  figure { margin: 1em 0 2em; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid #8885; border-radius: 8px; box-sizing: border-box; }
+  figcaption { margin-top: .4em; font-size: .85em; opacity: .8; }
+  code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body><main>
+<h1>OpenLess 听写配置帮助</h1>
+<p>在 Ulanzi Studio 选中听写按键，在属性栏的「语音转文字」中选择服务商。使用火山引擎时，豆包语音负责把录音转成文字，火山方舟负责整理标点和断句，两项服务分别配置密钥。</p>
+<h2>火山引擎</h2>
+<h3>1. 开通豆包语音识别</h3>
+<p>在豆包语音控制台进入「开通管理」，找到「语音识别」下的<strong>流式语音识别2.0</strong>。打开「服务详情」，选择<strong>小时版</strong>，确认服务状态显示「运行中」。同页的「录音文件识别2.0」是另一项服务。</p>
+<figure><a href="assets/help/volc-speech.png" target="_blank" rel="noopener"><img src="assets/help/volc-speech.png" alt="豆包语音控制台的流式语音识别2.0已开通，小时版服务状态为运行中"></a>
+<figcaption>图 1 · 核对服务名称、小时版和运行状态。点击图片可查看原图。</figcaption></figure>
+<p>在开通该服务的项目中创建语音密钥，回到插件属性栏，点「豆包语音 · 语音识别」旁的「配置密钥」并保存。<a href="https://console.volcengine.com/speech/new/setting/apikeys">打开豆包语音密钥管理 ↗</a></p>
+<h3>2. 开通火山方舟文字润色</h3>
+<p>在北京区火山方舟进入模型开通页面，在列表中选择左列的 <strong>Doubao-Seed-2.1-lite</strong>。勾选模型，阅读并同意服务条款后，点「确定开通与授权」。默认优先调用 <code>doubao-seed-2-1-lite-260915</code>。若方舟返回 403 或 404，插件会尝试图中红线标出的 2.0 Lite。</p>
+<figure><a href="assets/help/volc-ark.png" target="_blank" rel="noopener"><img src="assets/help/volc-ark.png" alt="方舟模型开通弹窗，右列红线标出 Doubao-Seed-2.0-lite，右下角为确定开通与授权"></a>
+<figcaption>图 2 · 左列为首选 2.1 Lite，右列红线处为备选 2.0 Lite。点击图片可查看原图。</figcaption></figure>
+<p>创建有权调用该模型的方舟密钥，回到插件属性栏，在「火山方舟 · 文字润色」一行保存。<a href="https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey">打开北京区方舟密钥管理 ↗</a></p>
+<h3>3. 试说一句</h3>
+<p>将光标放在文本编辑器中。默认按一下设备键开始，说「明天下午三点开会请带上笔记本」，再按一下结束。如果按键设置为「按住听写」，则按住说话、松开结束。两把密钥均配置后，可在光标处查看整理后的文字；仅配置语音密钥时，插件会输入转写原文。</p>
+<h2>指定润色模型</h2>
+<p>润色处理的是已经转写好的文字。只要当前服务商的<strong>文本生成模型支持 Chat Completions 接口</strong>，并且你的 API Key 有调用权限，就可以用于润色。</p>
+<ol>
+  <li>在服务商控制台复制要使用的<strong>模型 ID</strong>。例如 OpenAI 填 <code>gpt-6-luna</code>，火山方舟填 <code>doubao-seed-2-1-lite-260915</code>，硅基流动填 <code>deepseek-ai/DeepSeek-V4-Flash</code>。</li>
+  <li>在听写按键的属性栏选好服务商，展开「润色模型」，把完整 ID 粘贴到输入框，按 Tab 或点击输入框外保存。</li>
+</ol>
+<p>模型按当前按键和服务商分别保存。要恢复默认，清空输入框并保存即可。</p>
+<h2>OpenAI 和硅基流动</h2>
+<p><strong>OpenAI</strong> 用 Whisper 转写、GPT-6 Luna 润色。选择「OpenAI · whisper-1」后，在属性栏保存一把 OpenAI 密钥即可。<a href="https://platform.openai.com/api-keys">获取 OpenAI 密钥 ↗</a></p>
+<p><strong>硅基流动</strong> 可选 SenseVoiceSmall 或 TeleSpeechASR 转写，配合 DeepSeek-V4-Flash 润色。两个语音模型共用同一把硅基流动密钥。<a href="https://cloud.siliconflow.cn/account/ak">获取硅基流动密钥 ↗</a></p>
+</main></body></html>

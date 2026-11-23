@@ -24,6 +24,9 @@
   [hidden] { display: none !important; }
   .mode { padding: 7px 10px; border-bottom: 1px solid #40454e; }
   .mode label { font-weight: 600; margin-right: auto; }
+  details { padding: 7px 10px; }
+  summary { cursor: pointer; }
+  details input { width: 100%; margin-top: 4px; padding: 5px; font: inherit; }
   select { color: #f3f6fa; background: #37414e; border: 1px solid #576171; border-radius: 5px; padding: 4px 5px; font: inherit; max-width: 100%; }
 </style>
 <section aria-labelledby="label">
@@ -32,7 +35,13 @@
     <option value="hold">按住听写，松开结束</option>
   </select></div>
   <div class="row mode"><label for="model">语音转文字</label><select id="model" disabled></select></div>
+  <details><summary>润色模型</summary>
+    <label for="polishModel">自定义模型 ID（留空使用默认）</label>
+    <input id="polishModel" aria-describedby="polishHint" type="text" autocomplete="off" spellcheck="false" disabled>
+    <small id="polishHint">填写当前服务商支持 Chat Completions 的文本生成模型 ID。</small>
+  </details>
   <p id="guide"></p>
+  <div class="row"><a id="helpLink" href="./help.html" target="_blank" rel="noopener">查看配置帮助（含火山引擎图解）</a></div>
   <div class="row">
     <img class="icon" src="assets/openless.png" alt="">
     <div class="field"><h1 id="label">OpenAI API Key</h1><span id="status" role="status">连接 Studio 中…</span></div>
@@ -56,6 +65,13 @@
     modelSelect.add(new Option(model.service.name + ' · ' + model.asr.split('/').pop(), id));
   }
   let globals;
+  let actionSettings = {};
+  const polishInput = document.querySelector('#polishModel');
+  function showPolishInput() {
+    const {service} = speechModel(modelSelect.value);
+    polishInput.placeholder = service.polish;
+    polishInput.value = customPolishModel(service, actionSettings.polishModels);
+  }
   function showModel() {
     const {service, hint} = speechModel(modelSelect.value);
     const separate = Boolean(service.polishKey);
@@ -64,7 +80,8 @@
     document.querySelector('#keyLink').textContent = separate ? '获取语音密钥 ↗' : '获取密钥 ↗';
     if (separate) document.querySelector('#arkLink').href = service.polishUrl;
     document.querySelector('#label').textContent = separate ? '豆包语音 · 语音识别' : service.name + ' API Key';
-    document.querySelector('#guide').textContent = separate ? hint : hint + '转写后由 ' + service.polish.split('/').pop() + ' 整理标点和断句。请在' + service.name + '控制台创建 API Key，两步共用。';
+    const polish = customPolishModel(service, actionSettings.polishModels) || service.polish;
+    document.querySelector('#guide').textContent = hint + '转写后由 ' + polish + ' 润色。' + (separate ? '' : '两步共用' + service.name + '密钥。');
     if (!globals) return;
     if (separate) {
       const arkSaved = Boolean(globals[service.polishKey]?.data);
@@ -75,6 +92,7 @@
     status(saved ? '已配置' : '尚未配置', saved ? 'ready' : 'empty');
     button.textContent = saved ? '更换密钥' : '配置密钥';
   }
+  showPolishInput();
   showModel();
   function status(text, state = '') {
     statusLine.textContent = text;
@@ -84,10 +102,21 @@
     const ws = new WebSocket('ws://' + query.get('address') + ':' + query.get('port'));
     const send = msg => ws.send(JSON.stringify({...context, ...msg}));
     const mode = document.querySelector('#mode');
-    let actionSettings = {};
+    polishInput.onchange = () => {
+      const {service} = speechModel(modelSelect.value);
+      const polishModels = {...actionSettings.polishModels};
+      const id = polishInput.value.trim();
+      if (id) polishModels[service.id] = id;
+      else delete polishModels[service.id];
+      actionSettings = {...actionSettings, polishModels};
+      send({cmd:'setSettings', settings:actionSettings});
+      showPolishInput();
+      showModel();
+    };
     let timer;
     modelSelect.onchange = () => {
       actionSettings = {...actionSettings, speechModel:modelSelect.value};
+      showPolishInput();
       send({cmd:'setSettings', settings:actionSettings});
       showModel();
     };
@@ -110,6 +139,8 @@
         actionSettings = msg.settings;
         mode.value = actionSettings.dictationMode === 'hold' ? 'hold' : 'toggle';
         modelSelect.value = Object.hasOwn(speechModels, actionSettings.speechModel) ? actionSettings.speechModel : 'whisper';
+        if (document.activeElement !== polishInput) showPolishInput();
+        polishInput.disabled = false;
         modelSelect.disabled = false;
         button.disabled = false;
         document.querySelector('#arkButton').disabled = false;
@@ -127,6 +158,7 @@
       button.disabled = true;
       document.querySelector('#arkButton').disabled = true;
       mode.disabled = true;
+      polishInput.disabled = true;
       modelSelect.disabled = true;
       status('已断开，请重新选中按键');
     };
@@ -134,7 +166,8 @@
       link.onclick = event => {
         if (ws.readyState !== WebSocket.OPEN) return;
         event.preventDefault();
-        send({cmd:'openurl', url:link.href, local:false});
+        const local = link.id === 'helpLink';
+        send({cmd:'openurl', url:local ? './help.html' : link.href, local});
       };
     }
     document.querySelector('#arkButton').onclick = () => send({cmd:'sendToPlugin', payload:{action:'configure', modelId:modelSelect.value, purpose:'polish'}});

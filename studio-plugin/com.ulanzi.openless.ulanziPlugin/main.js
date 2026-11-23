@@ -100,7 +100,7 @@ function cancel() {
   current.child?.kill();
   current.release();
 }
-async function dictate(id, mode, modelId) {
+async function dictate(id, mode, modelId, polishModels) {
   let release;
   const released = new Promise(resolve => { release = resolve; });
   const current = {id, mode, release, abort:new AbortController(), stages:{startedAt:new Date().toISOString()}};
@@ -134,7 +134,7 @@ async function dictate(id, mode, modelId) {
     try {
       const polishKey = model.service.polishKey;
       const polishToken = polishKey ? unseal(settings[polishKey], polishKey) : token;
-      text = await cloud.polish(raw, polishToken, current.abort.signal, model);
+      text = await cloud.polish(raw, polishToken, current.abort.signal, model, polishModels);
     }
     catch { degraded = true; }
     checkpoint(current, 'polished', !degraded);
@@ -163,6 +163,7 @@ function receive(m) {
   }
   if (m.cmd === 'didReceiveSettings' && m.uuid === uuid + '.dictate' && m.actionid && m.settings) {
     const instance = instances.get(m.actionid);
+    if (instance) instance.polishModels = m.settings.polishModels;
     if (instance) instance.modelId = m.settings.speechModel;
     if (instance) instance.mode = m.settings.dictationMode === 'hold' ? 'hold' : 'toggle';
     return;
@@ -189,13 +190,14 @@ function receive(m) {
   if (m.cmd === 'add' || m.cmd === 'setactive') {
     instance.active = m.active !== false;
     instance.down = false;
+    if (m.cmd === 'add' || m.param?.polishModels !== undefined) instance.polishModels = m.param?.polishModels;
     if (m.param && (m.cmd === 'add' || m.param.speechModel !== undefined)) instance.modelId = m.param.speechModel;
     if (m.param) instance.mode = m.param.dictationMode === 'hold' ? 'hold' : 'toggle';
   }
   if (m.cmd === 'setactive' && !m.active && session?.id === id) cancel();
   if (m.cmd === 'keydown' && instance.active && !instance.down && !m.isInMultiAction) {
     instance.down = true;
-    if (!session && !configuring) void dictate(id, instance.mode, instance.modelId);
+    if (!session && !configuring) void dictate(id, instance.mode, instance.modelId, instance.polishModels);
     else if (session?.id === id && session.mode === 'toggle' && !session.ended) {
       session.ended = true;
       session.release();
