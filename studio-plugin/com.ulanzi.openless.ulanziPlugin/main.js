@@ -7,6 +7,8 @@ const cloud = require('./cloud');
 const uuid = require('./manifest.json').UUID;
 const helper = path.join(__dirname, 'bin/helper');
 const [address, port] = process.argv.slice(2);
+// Cache a successful read for this plugin process. Key changes in the inspector invalidate it.
+let sessionCredential;
 let overlay, overlayTimer;
 let socket, session, configuring = false;
 const instances = new Map();
@@ -78,9 +80,12 @@ async function dictate(id) {
   const timer = setTimeout(cancel, 180000);
   let dir;
   try {
-    const key = native(['credential']);
-    current.child = key.child;
-    const token = await key.result;
+    if (!sessionCredential) {
+      const key = native(['credential']);
+      current.child = key.child;
+      sessionCredential = await key.result;
+    }
+    const token = sessionCredential;
     if (current.ended || current.abort.signal.aborted) return title(id, '请按久一点');
     dir = mkdtempSync(path.join(tmpdir(), 'openless-'));
     const wav = path.join(dir, 'recording.wav');
@@ -142,7 +147,10 @@ function receive(m) {
   if (m.cmd === 'keyup' && session?.id === id) { checkpoint(session, 'keyup'); session.ended = true; session.release(); }
   if (m.cmd === 'sendToPlugin' && m.payload?.action === 'configure' && !configuring && !session) {
     configuring = true;
-    native(['configure']).result.then(msg => title(id,msg || '按住听写'), e => title(id,e.message))
+    native(['configure']).result.then(msg => {
+      if (msg) sessionCredential = undefined;
+      title(id, msg || '按住听写');
+    }, e => title(id,e.message))
       .finally(() => configuring = false);
   }
 }
