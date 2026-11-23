@@ -5,7 +5,7 @@ const {homedir} = require('node:os');
 
 const directory = path.join(homedir(), 'Library/Application Support/OpenLessStudio');
 const keyPath = path.join(directory, 'global-settings.key');
-const aad = Buffer.from('com.ulanzi.ulanzistudio.openless:openai:v1');
+const aad = key => Buffer.from('com.ulanzi.ulanzistudio.openless:' + (key === 'openaiCredential' ? 'openai' : key) + ':v1');
 
 function localKey(create) {
   if (create && !fs.existsSync(keyPath)) {
@@ -19,14 +19,14 @@ function localKey(create) {
   }
   return fs.readFileSync(keyPath);
 }
-exports.seal = value => {
+exports.seal = (value, key = 'openaiCredential') => {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', localKey(true), iv);
-  cipher.setAAD(aad);
+  cipher.setAAD(aad(key));
   const data = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
   return {v:1, iv:iv.toString('base64'), data:data.toString('base64'), tag:cipher.getAuthTag().toString('base64')};
 };
-exports.unseal = box => {
+exports.unseal = (box, key = 'openaiCredential') => {
   if (!box) throw Error('请先配置 API Key');
   try {
     if (box.v !== 1) throw Error();
@@ -34,7 +34,7 @@ exports.unseal = box => {
     const iv = Buffer.from(box.iv,'base64');
     if (tag.length !== 16 || iv.length !== 12) throw Error();
     const cipher = crypto.createDecipheriv('aes-256-gcm',localKey(false),iv,{authTagLength:16});
-    cipher.setAAD(aad);
+    cipher.setAAD(aad(key));
     cipher.setAuthTag(tag);
     return Buffer.concat([cipher.update(Buffer.from(box.data,'base64')),cipher.final()]).toString('utf8');
   } catch { throw Error('无法解密，请重新配置 API Key'); }

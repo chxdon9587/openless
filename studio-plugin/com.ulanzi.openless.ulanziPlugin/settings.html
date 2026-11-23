@@ -20,6 +20,8 @@
   button:focus-visible { outline: 2px solid #9fc7ff; outline-offset: 2px; }
   button:disabled { opacity: .55; cursor: default; }
   p { margin: 0; border-top: 1px solid #393f49; padding: 7px 12px; color: #bcc3cd; font-size: 11px; line-height: 16px; }
+  a { color: #a8cdff; font-size: 12px; }
+  [hidden] { display: none !important; }
   .mode { padding: 7px 10px; border-bottom: 1px solid #40454e; }
   .mode label { font-weight: 600; margin-right: auto; }
   select { color: #f3f6fa; background: #37414e; border: 1px solid #576171; border-radius: 5px; padding: 4px 5px; font: inherit; max-width: 100%; }
@@ -29,18 +31,51 @@
     <option value="toggle">按一下开始，再按一下结束</option>
     <option value="hold">按住听写，松开结束</option>
   </select></div>
+  <div class="row mode"><label for="model">语音转文字</label><select id="model" disabled></select></div>
+  <p id="guide"></p>
   <div class="row">
     <img class="icon" src="assets/openless.png" alt="">
     <div class="field"><h1 id="label">OpenAI API Key</h1><span id="status" role="status">连接 Studio 中…</span></div>
+    <a id="keyLink" target="_blank" rel="noopener noreferrer">获取密钥 ↗</a>
     <button type="button" disabled>配置密钥</button>
   </div>
-
+  <div class="row" id="arkRow" hidden>
+    <div class="field"><h1>火山方舟 · 文字润色</h1><span id="arkStatus" role="status"></span></div>
+    <a id="arkLink" target="_blank" rel="noopener noreferrer">获取方舟密钥 ↗</a>
+    <button id="arkButton" type="button" disabled>配置密钥</button>
+  </div>
 </section>
+<script src="models.js"></script>
 <script>
   const query = new URLSearchParams(location.search);
   const context = Object.fromEntries(['uuid', 'key', 'actionid'].map(name => [name, query.get(name)]));
   const button = document.querySelector('button');
   const statusLine = document.querySelector('#status');
+  const modelSelect = document.querySelector('#model');
+  for (const [id, model] of Object.entries(speechModels)) {
+    modelSelect.add(new Option(model.service.name + ' · ' + model.asr.split('/').pop(), id));
+  }
+  let globals;
+  function showModel() {
+    const {service, hint} = speechModel(modelSelect.value);
+    const separate = Boolean(service.polishKey);
+    document.querySelector('#arkRow').hidden = !separate;
+    document.querySelector('#keyLink').href = service.keyUrl;
+    document.querySelector('#keyLink').textContent = separate ? '获取语音密钥 ↗' : '获取密钥 ↗';
+    if (separate) document.querySelector('#arkLink').href = service.polishUrl;
+    document.querySelector('#label').textContent = separate ? '豆包语音 · 语音识别' : service.name + ' API Key';
+    document.querySelector('#guide').textContent = separate ? hint : hint + '转写后由 ' + service.polish.split('/').pop() + ' 整理标点和断句。请在' + service.name + '控制台创建 API Key，两步共用。';
+    if (!globals) return;
+    if (separate) {
+      const arkSaved = Boolean(globals[service.polishKey]?.data);
+      document.querySelector('#arkStatus').textContent = arkSaved ? '已配置' : '尚未配置';
+      document.querySelector('#arkButton').textContent = arkSaved ? '更换密钥' : '配置密钥';
+    }
+    const saved = Boolean(globals[service.key]?.data);
+    status(saved ? '已配置' : '尚未配置', saved ? 'ready' : 'empty');
+    button.textContent = saved ? '更换密钥' : '配置密钥';
+  }
+  showModel();
   function status(text, state = '') {
     statusLine.textContent = text;
     statusLine.dataset.state = state;
@@ -51,13 +86,18 @@
     const mode = document.querySelector('#mode');
     let actionSettings = {};
     let timer;
+    modelSelect.onchange = () => {
+      actionSettings = {...actionSettings, speechModel:modelSelect.value};
+      send({cmd:'setSettings', settings:actionSettings});
+      showModel();
+    };
     mode.onchange = () => {
       actionSettings = {...actionSettings, dictationMode:mode.value};
       send({cmd:'setSettings', settings:actionSettings});
     };
     ws.onopen = () => {
       send({cmd:'connected', code:0});
-      button.disabled = false;
+
       status('正在读取配置…');
       timer = setTimeout(() => status('配置状态暂不可用'), 3000);
       send({cmd:'getSettings'});
@@ -69,22 +109,36 @@
       if (msg.cmd === 'didReceiveSettings' && msg.actionid === context.actionid && msg.settings) {
         actionSettings = msg.settings;
         mode.value = actionSettings.dictationMode === 'hold' ? 'hold' : 'toggle';
+        modelSelect.value = Object.hasOwn(speechModels, actionSettings.speechModel) ? actionSettings.speechModel : 'whisper';
+        modelSelect.disabled = false;
+        button.disabled = false;
+        document.querySelector('#arkButton').disabled = false;
+        showModel();
         mode.disabled = false;
         return;
       }
       if (msg.cmd !== 'didReceiveGlobalSettings' || !msg.settings) return;
       clearTimeout(timer);
-      const saved = Boolean(msg.settings.openaiCredential?.data);
-      status(saved ? '已配置' : '尚未配置', saved ? 'ready' : 'empty');
-      button.textContent = saved ? '更换密钥' : '配置密钥';
+      globals = msg.settings;
+      showModel();
     };
     ws.onclose = () => {
       clearTimeout(timer);
       button.disabled = true;
+      document.querySelector('#arkButton').disabled = true;
       mode.disabled = true;
+      modelSelect.disabled = true;
       status('已断开，请重新选中按键');
     };
-    button.onclick = () => send({cmd:'sendToPlugin', payload:{action:'configure'}});
+    for (const link of document.querySelectorAll('a')) {
+      link.onclick = event => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        event.preventDefault();
+        send({cmd:'openurl', url:link.href, local:false});
+      };
+    }
+    document.querySelector('#arkButton').onclick = () => send({cmd:'sendToPlugin', payload:{action:'configure', modelId:modelSelect.value, purpose:'polish'}});
+    button.onclick = () => send({cmd:'sendToPlugin', payload:{action:'configure', modelId:modelSelect.value}});
   } else {
     status('请在 Studio 中打开');
   }

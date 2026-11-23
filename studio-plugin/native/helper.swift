@@ -10,10 +10,10 @@ final class KeyEntry: NSView, NSTextFieldDelegate {
     private var active: NSTextField { toggle.state == .on ? plain : masked }
     var value: String { active.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    init(save: NSButton) {
+    init(save: NSButton, provider: String) {
         self.save = save
         super.init(frame: NSRect(x: 0, y: 0, width: 364, height: 94))
-        let label = NSTextField(labelWithString: "OpenAI API Key")
+        let label = NSTextField(labelWithString: "\(provider) API Key")
         label.font = .systemFont(ofSize: 13, weight: .semibold)
         label.frame = NSRect(x: 0, y: 71, width: 360, height: 20)
         addSubview(label)
@@ -23,7 +23,7 @@ final class KeyEntry: NSView, NSTextFieldDelegate {
             field.bezelStyle = .roundedBezel
             field.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
             field.placeholderString = "粘贴你的 API Key"
-            field.setAccessibilityLabel("OpenAI API Key")
+            field.setAccessibilityLabel("\(provider) API Key")
             field.delegate = self
             addSubview(field)
         }
@@ -49,6 +49,7 @@ final class KeyEntry: NSView, NSTextFieldDelegate {
     func controlTextDidChange(_ notification: Notification) { save.isEnabled = !value.isEmpty }
 }
 func configure() throws {
+    let provider = CommandLine.arguments.dropFirst(2).first ?? "OpenAI"
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     // An accessory process needs an Edit menu for standard paste shortcuts.
@@ -66,10 +67,16 @@ func configure() throws {
     let plugin = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().deletingLastPathComponent()
     if let icon = NSImage(contentsOf: plugin.appendingPathComponent("assets/openless.png")) { dialog.icon = icon }
     dialog.messageText = "配置听写密钥"
-    dialog.informativeText = "听写音频和转写文本将发送至 OpenAI。密钥加密保存在 Studio 全局设置，所有听写按键共用。"
+    let usage: String
+    switch provider {
+    case "豆包语音（识别）": usage = "录音将发送至豆包语音做识别。请输入新版豆包语音控制台签发的 API Key。"
+    case "火山方舟（润色）": usage = "转写文字将发送至北京区火山方舟做润色。请输入方舟控制台签发的 API Key。"
+    default: usage = "听写音频和转写文本将发送至 \(provider)。"
+    }
+    dialog.informativeText = usage + "密钥加密保存在 Studio 全局设置，所有听写按键共用。"
     let save = dialog.addButton(withTitle: "保存密钥")
     dialog.addButton(withTitle: "取消")
-    let entry = KeyEntry(save: save)
+    let entry = KeyEntry(save: save, provider: provider)
     dialog.accessoryView = entry
     dialog.window.initialFirstResponder = entry.masked
     guard dialog.runModal() == .alertFirstButtonReturn else { return }

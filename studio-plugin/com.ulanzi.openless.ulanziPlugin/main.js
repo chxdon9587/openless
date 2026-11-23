@@ -3,6 +3,7 @@ const {spawn} = require('node:child_process');
 const {mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, renameSync} = require('node:fs');
 const {homedir, tmpdir} = require('node:os');
 const path = require('node:path');
+const {speechModel} = require('./models');
 const cloud = require('./cloud');
 const {record} = require('./record');
 const uuid = require('./manifest.json').UUID;
@@ -23,15 +24,19 @@ function readSettings(id) {
     send({cmd:'getGlobalSettings', uuid, actionid:id});
   });
 }
-async function configure(id) {
+async function configure(id, modelId, purpose) {
+  const {service} = speechModel(modelId);
+  const forPolish = purpose === 'polish' && service.polishKey;
+  const key = forPolish ? service.polishKey : service.key;
+  const label = service.polishKey ? (forPolish ? '火山方舟（润色）' : '豆包语音（识别）') : service.name;
   // Keep plaintext off Studio's WebSocket and therefore out of host protocol logs.
-  const value = await native(['configure']).result;
+  const value = await native(['configure', label]).result;
   if (!value) return;
   const settings = await readSettings(id);
-  const box = seal(value);
-  send({cmd:'setGlobalSettings', uuid, settings:{...settings, openaiCredential:box}});
+  const box = seal(value, key);
+  send({cmd:'setGlobalSettings', uuid, settings:{...settings, [key]:box}});
   const saved = await readSettings(id);
-  if (unseal(saved.openaiCredential) !== value) throw Error('保存全局设置失败');
+  if (unseal(saved[key], key) !== value) throw Error('保存全局设置失败');
   title(id,'已保存');
 }
 let overlay, overlayTimer;
@@ -95,7 +100,7 @@ function cancel() {
   current.child?.kill();
   current.release();
 }
-async function dictate(id, mode) {
+async function dictate(id, mode, modelId) {
   let release;
   const released = new Promise(resolve => { release = resolve; });
   const current = {id, mode, release, abort:new AbortController(), stages:{startedAt:new Date().toISOString()}};
@@ -105,7 +110,9 @@ async function dictate(id, mode) {
   const timer = setTimeout(cancel, 180000);
   let dir;
   try {
-    const token = unseal((await readSettings(id)).openaiCredential);
+    const model = speechModel(modelId);
+    const settings = await readSettings(id);
+    const token = unseal(settings[model.service.key], model.service.key);
     if (current.ended || current.abort.signal.aborted) return title(id, '录音尚未开始');
     dir = mkdtempSync(path.join(tmpdir(), 'openless-'));
     const wav = path.join(dir, 'recording.wav');
@@ -120,11 +127,15 @@ async function dictate(id, mode) {
     checkpoint(current, 'wavBytes', audio.length);
     if (audio.length < 5000) throw Error('录音太短');
     title(id, '识别中');
-    const raw = await cloud.transcribe(audio, token, current.abort.signal);
+    const raw = await cloud.transcribe(audio, token, current.abort.signal, model);
     checkpoint(current, 'transcribed');
     title(id, '润色中');
     let text = raw, degraded = false;
-    try { text = await cloud.polish(raw, token, current.abort.signal); }
+    try {
+      const polishKey = model.service.polishKey;
+      const polishToken = polishKey ? unseal(settings[polishKey], polishKey) : token;
+      text = await cloud.polish(raw, polishToken, current.abort.signal, model);
+    }
     catch { degraded = true; }
     checkpoint(current, 'polished', !degraded);
     current.abort.signal.throwIfAborted();
@@ -152,6 +163,7 @@ function receive(m) {
   }
   if (m.cmd === 'didReceiveSettings' && m.uuid === uuid + '.dictate' && m.actionid && m.settings) {
     const instance = instances.get(m.actionid);
+    if (instance) instance.modelId = m.settings.speechModel;
     if (instance) instance.mode = m.settings.dictationMode === 'hold' ? 'hold' : 'toggle';
     return;
   }
@@ -177,12 +189,13 @@ function receive(m) {
   if (m.cmd === 'add' || m.cmd === 'setactive') {
     instance.active = m.active !== false;
     instance.down = false;
+    if (m.param && (m.cmd === 'add' || m.param.speechModel !== undefined)) instance.modelId = m.param.speechModel;
     if (m.param) instance.mode = m.param.dictationMode === 'hold' ? 'hold' : 'toggle';
   }
   if (m.cmd === 'setactive' && !m.active && session?.id === id) cancel();
   if (m.cmd === 'keydown' && instance.active && !instance.down && !m.isInMultiAction) {
     instance.down = true;
-    if (!session && !configuring) void dictate(id, instance.mode);
+    if (!session && !configuring) void dictate(id, instance.mode, instance.modelId);
     else if (session?.id === id && session.mode === 'toggle' && !session.ended) {
       session.ended = true;
       session.release();
@@ -198,7 +211,7 @@ function receive(m) {
   }
   if (m.cmd === 'sendToPlugin' && m.payload?.action === 'configure' && !configuring && !session) {
     configuring = true;
-    configure(id).catch(e => title(id, e.message))
+    configure(id, m.payload.modelId, m.payload.purpose).catch(e => title(id, e.message))
       .finally(() => configuring = false);
   }
 }
