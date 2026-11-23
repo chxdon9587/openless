@@ -39,10 +39,16 @@ do {
     let recorder = try AVAudioRecorder(url: URL(fileURLWithPath: args[1]), settings: [
         AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1,
         AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false])
+    recorder.isMeteringEnabled = true
     guard recorder.record() else { status("unavailable"); exit(1) }
     status("ready " + String(target))
-    var byte: UInt8 = 0
-    _ = read(fd, &byte, 1)
+    // A release or a disconnected Studio socket wakes poll immediately.
+    while poll(&input, 1, 50) == 0 {
+        recorder.updateMeters()
+        let db = recorder.averagePower(forChannel: 0)
+        let level = max(0, min(1, (db + 55) / 49))
+        status("level " + String(Int(level * 100)))
+    }
     recorder.stop()
     status("done")
 } catch { status("unavailable") }

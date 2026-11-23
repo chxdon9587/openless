@@ -76,17 +76,69 @@ func configure() throws {
     guard !entry.value.isEmpty else { throw Failure("密钥为空") }
     FileHandle.standardOutput.write(Data(entry.value.utf8))
 }
+func attribute(_ element: AXUIElement, _ name: CFString) -> CFTypeRef? {
+    var result: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, name, &result) == .success else { return nil }
+    return result
+}
+func selection(_ element: AXUIElement) -> CFRange? {
+    guard let value = attribute(element, kAXSelectedTextRangeAttribute as CFString),
+          CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+    var range = CFRange()
+    return AXValueGetValue(value as! AXValue, .cfRange, &range) ? range : nil
+}
+// Read back only the inserted range. Some editors do not implement this AX operation.
+func confirmsInsertion(_ element: AXUIElement, at offset: Int, text: String) -> Bool {
+    var range = CFRange(location: offset, length: text.utf16.count)
+    guard let position = selection(element), position.length == 0,
+          position.location == offset + range.length,
+          let parameter = AXValueCreate(.cfRange, &range) else { return false }
+    var result: CFTypeRef?
+    return AXUIElementCopyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString,
+                                                       parameter, &result) == .success && result as? String == text
+}
 func paste(_ target: String) throws {
     guard let text = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8), !text.isEmpty else { throw Failure("文本为空") }
     let board = NSPasteboard.general
     board.clearContents()
     guard board.setString(text, forType: .string) else { throw Failure("复制失败") }
-    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == Int32(target),
-          AXIsProcessTrusted(), let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
-          let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else { print("已复制，请粘贴"); return }
-    for event in [down, up] { event.flags = .maskCommand; event.post(tap: .cghidEventTap) }
-    print("已发送粘贴")
+    guard let pid = Int32(target), pid > 0, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+        print("焦点已切换 · 请按 ⌘V"); return
+    }
+    guard AXIsProcessTrusted() else { print("缺少辅助功能权限 · 请按 ⌘V"); return }
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 0.2)
+    let focus = attribute(app, kAXFocusedUIElementAttribute as CFString)
+    let field = focus.flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
+    let original = field.flatMap(selection)
+    var editable = DarwinBoolean(false)
+    var inserted = false
+    if let field, original != nil,
+       AXUIElementIsAttributeSettable(field, kAXSelectedTextAttribute as CFString, &editable) == .success,
+       editable.boolValue {
+        let status = AXUIElementSetAttributeValue(field, kAXSelectedTextAttribute as CFString, text as CFString)
+        inserted = status == .success || status == .cannotComplete // A timeout may already have inserted the text.
+    }
+    if !inserted {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+              let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else {
+            print("已复制 · 请按 ⌘V"); return
+        }
+        down.flags = .maskCommand; up.flags = .maskCommand
+        down.postToPid(pid)
+        Thread.sleep(forTimeInterval: 0.02)
+        up.postToPid(pid)
+    }
+    if let field, let original {
+        for _ in 0..<5 {
+            if confirmsInsertion(field, at: original.location, text: text) { print("已输入"); return }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+    print("请检查输入框 · 内容已复制")
 }
+
 do {
     let args = Array(CommandLine.arguments.dropFirst())
     switch args.first {

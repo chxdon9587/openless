@@ -112,6 +112,8 @@ async function dictate(id, mode) {
     const target = await record(dir, released, current.abort.signal, status => {
       if (status === '录音中') checkpoint(current, 'recording');
       title(id, status === '录音中' && mode === 'toggle' ? '录音中 · 再按结束' : status);
+    }, level => {
+      if (session === current && !current.ended && !current.abort.signal.aborted) overlay?.stdin.write('level ' + level + '\n');
     });
     current.abort.signal.throwIfAborted();
     const audio = readFileSync(wav);
@@ -130,7 +132,7 @@ async function dictate(id, mode) {
     current.child = insertion.child;
     insertion.child.stdin.end(text);
     const status = await insertion.result;
-    checkpoint(current, 'output', status === '已发送粘贴' ? 'paste-dispatched' : 'clipboard');
+    checkpoint(current, 'output', status === '已输入' ? 'confirmed' : status.startsWith('请检查输入框') ? 'unconfirmed' : 'clipboard');
     title(id, (degraded ? '原文 · ' : '') + status);
   } catch (error) {
     checkpoint(current, 'failure', /^服务错误 [0-9]{3}/.test(error.message) ? error.message : 'stage-failed');

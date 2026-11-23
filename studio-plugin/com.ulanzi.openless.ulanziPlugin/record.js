@@ -4,7 +4,7 @@ const {spawn} = require('node:child_process');
 const {createInterface} = require('node:readline');
 const app = path.join(__dirname, 'bin/OpenLess Recorder.app');
 
-exports.record = async function record(dir, release, signal, update) {
+exports.record = async function record(dir, release, signal, update, onLevel = () => {}) {
   const endpoint = path.join(dir, 'mic.sock');
   let peer, launcher, released = false;
   const server = net.createServer();
@@ -25,6 +25,9 @@ exports.record = async function record(dir, release, signal, update) {
         createInterface({input:socket}).on('line', line => {
           if (line === 'permission') update('请允许 OpenLess Recorder 录音');
           else if (/^ready [0-9]+$/.test(line)) { target = line.slice(6); update('录音中'); }
+          else if (/^level (100|[0-9]{1,2})$/.test(line)) {
+            if (target && !released) onLevel(Number(line.slice(6)));
+          }
           else if (line === 'done' && target) resolve(target);
           else if (line === 'released') reject(Error('请重新按住设备键'));
           else if (line === 'denied') reject(Error('请开启 OpenLess Recorder 麦克风'));
