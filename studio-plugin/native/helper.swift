@@ -41,11 +41,18 @@ func record(_ path: String) throws {
     let target = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
     if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
         let done = DispatchSemaphore(value: 0)
-        AVCaptureDevice.requestAccess(for: .audio) { _ in done.signal() }
+        var granted = false
+        AVCaptureDevice.requestAccess(for: .audio) { allowed in
+            granted = allowed
+            done.signal()
+        }
         done.wait()
-        throw Failure("请再次按住听写")
+        guard granted else { throw Failure("请在系统设置允许麦克风") }
+        // Release is buffered on stdin while the system permission dialog is open.
+        var input = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+        if poll(&input, 1, 0) != 0 { throw Failure("已授权，请重新按住") }
     }
-    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw Failure("请允许麦克风") }
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw Failure("请在系统设置允许麦克风") }
     let recorder = try AVAudioRecorder(url: URL(fileURLWithPath: path), settings: [
         AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1,
         AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false])
