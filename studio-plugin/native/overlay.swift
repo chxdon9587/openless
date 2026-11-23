@@ -49,8 +49,8 @@ func show(_ status: String) {
     var message = status
     switch status {
     case "准备录音": symbol = "mic"; color = .lightGray
-    case "录音中":
-        symbol = "mic.fill"; color = .systemRed; message = "录音中 · 松开结束"
+    case "录音中", "录音中 · 再按结束":
+        symbol = "mic.fill"; color = .systemRed; message = status == "录音中" ? "录音中 · 松开结束" : status
         let start = ProcessInfo.processInfo.systemUptime
         clock.stringValue = "00:00"
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in

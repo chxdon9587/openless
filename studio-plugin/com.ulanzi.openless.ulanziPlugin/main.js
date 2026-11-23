@@ -95,10 +95,10 @@ function cancel() {
   current.child?.kill();
   current.release();
 }
-async function dictate(id) {
+async function dictate(id, mode) {
   let release;
   const released = new Promise(resolve => { release = resolve; });
-  const current = {id, release, abort:new AbortController(), stages:{startedAt:new Date().toISOString()}};
+  const current = {id, mode, release, abort:new AbortController(), stages:{startedAt:new Date().toISOString()}};
   session = current;
   checkpoint(current, 'keydown');
   displayStatus('准备录音');
@@ -106,12 +106,12 @@ async function dictate(id) {
   let dir;
   try {
     const token = unseal((await readSettings(id)).openaiCredential);
-    if (current.ended || current.abort.signal.aborted) return title(id, '请按久一点');
+    if (current.ended || current.abort.signal.aborted) return title(id, '录音尚未开始');
     dir = mkdtempSync(path.join(tmpdir(), 'openless-'));
     const wav = path.join(dir, 'recording.wav');
     const target = await record(dir, released, current.abort.signal, status => {
       if (status === '录音中') checkpoint(current, 'recording');
-      title(id, status);
+      title(id, status === '录音中' && mode === 'toggle' ? '录音中 · 再按结束' : status);
     });
     current.abort.signal.throwIfAborted();
     const audio = readFileSync(wav);
@@ -148,6 +148,11 @@ function receive(m) {
     pendingSettings.finish(m.settings);
     return;
   }
+  if (m.cmd === 'didReceiveSettings' && m.uuid === uuid + '.dictate' && m.actionid && m.settings) {
+    const instance = instances.get(m.actionid);
+    if (instance) instance.mode = m.settings.dictationMode === 'hold' ? 'hold' : 'toggle';
+    return;
+  }
   if (m.cmdType === 'NOTIFY' || (m.code !== undefined && m.cmdType !== 'REQUEST')) return;
   if (['add','clear','keydown','keyup','run','setactive','sendToPlugin'].includes(m.cmd)) {
     const {cmdType, ...response} = m;
@@ -162,12 +167,33 @@ function receive(m) {
   }
   if (m.uuid !== uuid + '.dictate' || !m.actionid) return;
   const id = m.actionid;
-  if (m.cmd === 'add' || m.cmd === 'setactive' || !instances.has(id)) {
-    instances.set(id, {uuid:m.uuid, key:m.key, active:m.active !== false});
+  let instance = instances.get(id);
+  if (!instance) {
+    instance = {uuid:m.uuid, key:m.key, active:true, down:false, mode:'toggle'};
+    instances.set(id, instance);
+  }
+  if (m.cmd === 'add' || m.cmd === 'setactive') {
+    instance.active = m.active !== false;
+    instance.down = false;
+    if (m.param) instance.mode = m.param.dictationMode === 'hold' ? 'hold' : 'toggle';
   }
   if (m.cmd === 'setactive' && !m.active && session?.id === id) cancel();
-  if (m.cmd === 'keydown' && !session && !configuring && !m.isInMultiAction) void dictate(id);
-  if (m.cmd === 'keyup' && session?.id === id) { checkpoint(session, 'keyup'); session.ended = true; session.release(); }
+  if (m.cmd === 'keydown' && instance.active && !instance.down && !m.isInMultiAction) {
+    instance.down = true;
+    if (!session && !configuring) void dictate(id, instance.mode);
+    else if (session?.id === id && session.mode === 'toggle' && !session.ended) {
+      session.ended = true;
+      session.release();
+    }
+  }
+  if (m.cmd === 'keyup') {
+    instance.down = false;
+    if (session?.id === id && session.mode === 'hold' && !session.ended) {
+      checkpoint(session, 'keyup');
+      session.ended = true;
+      session.release();
+    }
+  }
   if (m.cmd === 'sendToPlugin' && m.payload?.action === 'configure' && !configuring && !session) {
     configuring = true;
     configure(id).catch(e => title(id, e.message))

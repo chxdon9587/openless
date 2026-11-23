@@ -1,10 +1,10 @@
 {
   "UUID": "com.ulanzi.ulanzistudio.openless",
-  "Version": "0.1.7",
+  "Version": "0.1.9",
   "Author": "OpenLess Ulanzi fork",
   "Name": "OpenLess 听写",
   "Category": "OpenLess 听写",
-  "Description": "按住设备键说话，松开后整理文字并输入。",
+  "Description": "用设备键开始和结束听写，自动整理文字并输入。",
   "Icon": "assets/openless.png",
   "CategoryIcon": "assets/openless.png",
   "Type": "JavaScript",
@@ -21,8 +21,8 @@
   "Actions": [
     {
       "UUID": "com.ulanzi.ulanzistudio.openless.dictate",
-      "Name": "按住听写",
-      "Tooltip": "按住录音，松开后输入",
+      "Name": "听写",
+      "Tooltip": "按一下开始听写，再按一下结束；也可选择按住听写",
       "Controllers": [
         "Keypad"
       ],
