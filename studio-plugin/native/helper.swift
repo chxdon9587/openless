@@ -2,22 +2,79 @@ import AppKit
 import ApplicationServices
 
 struct Failure: Error { let message: String; init(_ message: String) { self.message = message } }
+final class KeyEntry: NSView, NSTextFieldDelegate {
+    let masked = NSSecureTextField()
+    private let plain = NSTextField()
+    private let toggle = NSButton(checkboxWithTitle: "显示密钥", target: nil, action: nil)
+    private let save: NSButton
+    private var active: NSTextField { toggle.state == .on ? plain : masked }
+    var value: String { active.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    init(save: NSButton) {
+        self.save = save
+        super.init(frame: NSRect(x: 0, y: 0, width: 364, height: 94))
+        let label = NSTextField(labelWithString: "OpenAI API Key")
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        label.frame = NSRect(x: 0, y: 71, width: 360, height: 20)
+        addSubview(label)
+        for field in [masked as NSTextField, plain] {
+            field.frame = NSRect(x: 0, y: 34, width: 364, height: 30)
+            field.controlSize = .large
+            field.bezelStyle = .roundedBezel
+            field.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+            field.placeholderString = "粘贴你的 API Key"
+            field.setAccessibilityLabel("OpenAI API Key")
+            field.delegate = self
+            addSubview(field)
+        }
+        plain.isHidden = true
+        toggle.frame = NSRect(x: 0, y: 4, width: 130, height: 22)
+        toggle.target = self
+        toggle.action = #selector(switchVisibility)
+        addSubview(toggle)
+        save.isEnabled = false
+    }
+    required init?(coder: NSCoder) { nil }
+
+    @objc private func switchVisibility() {
+        let previous = toggle.state == .on ? masked : plain
+        let text = previous.stringValue
+        previous.isHidden = true
+        active.stringValue = text
+        active.isHidden = false
+        window?.makeFirstResponder(active)
+        previous.stringValue = ""
+        save.isEnabled = !value.isEmpty
+    }
+    func controlTextDidChange(_ notification: Notification) { save.isEnabled = !value.isEmpty }
+}
 func configure() throws {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
+    // An accessory process needs an Edit menu for standard paste shortcuts.
+    let menu = NSMenu()
+    let edit = NSMenuItem()
+    menu.addItem(edit)
+    let commands = NSMenu(title: "编辑")
+    commands.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+    commands.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+    edit.submenu = commands
+    app.mainMenu = menu
+    app.finishLaunching()
     app.activate(ignoringOtherApps: true)
     let dialog = NSAlert()
-    dialog.messageText = "OpenLess 听写 · OpenAI API Key"
-    dialog.informativeText = "音频和转写将发送至 OpenAI。密钥加密保存到 Studio 全局设置。"
-    let field = NSSecureTextField(frame: NSRect(x: 0,y: 0,width: 360,height: 26))
-    dialog.accessoryView = field
-    dialog.addButton(withTitle: "保存")
+    let plugin = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().deletingLastPathComponent()
+    if let icon = NSImage(contentsOf: plugin.appendingPathComponent("assets/openless.png")) { dialog.icon = icon }
+    dialog.messageText = "配置听写密钥"
+    dialog.informativeText = "听写音频和转写文本将发送至 OpenAI。密钥加密保存在 Studio 全局设置，所有听写按键共用。"
+    let save = dialog.addButton(withTitle: "保存密钥")
     dialog.addButton(withTitle: "取消")
-    dialog.window.initialFirstResponder = field
+    let entry = KeyEntry(save: save)
+    dialog.accessoryView = entry
+    dialog.window.initialFirstResponder = entry.masked
     guard dialog.runModal() == .alertFirstButtonReturn else { return }
-    let key = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !key.isEmpty else { throw Failure("密钥为空") }
-    FileHandle.standardOutput.write(Data(key.utf8))
+    guard !entry.value.isEmpty else { throw Failure("密钥为空") }
+    FileHandle.standardOutput.write(Data(entry.value.utf8))
 }
 func paste(_ target: String) throws {
     guard let text = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8), !text.isEmpty else { throw Failure("文本为空") }

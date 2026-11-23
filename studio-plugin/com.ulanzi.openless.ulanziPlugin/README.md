@@ -1,4 +1,4 @@
-# OpenLess 听写 0.1.6
+# OpenLess 听写 0.1.7
 
 Apple 芯片 Mac，macOS 13+，Ulanzi Studio 3.3+。将「OpenLess 听写 → 按住听写」拖到普通按键，在属性面板点「配置 OpenAI API Key」。所有听写按键共用 Studio 全局设置中以 AES-256-GCM 加密的凭据。加密用的随机密钥单独保存在当前 macOS 用户目录（权限 0600）。换机、丢失本机加密密钥或从钥匙串版本升级时，请重新输入 API Key。账户需要能调用 whisper-1 和 gpt-4o-mini，服务费用计入自己的 OpenAI 账户。
 
